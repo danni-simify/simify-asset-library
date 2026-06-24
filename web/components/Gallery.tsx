@@ -7,6 +7,9 @@ import AssetModal from "./AssetModal";
 import AddModal from "./AddModal";
 import GenerateModal from "./GenerateModal";
 import ReviewModal from "./ReviewModal";
+import FlagGenModal from "./FlagGenModal";
+
+type ShapeFilter = "all" | "rectangle" | "circular";
 
 type TypeFilter = AssetType | "all";
 
@@ -15,6 +18,7 @@ const TABS: { label: string; value: TypeFilter }[] = [
   { label: "Icons", value: "icon" },
   { label: "Graphics", value: "graphic" },
   { label: "Images", value: "image" },
+  { label: "Flags", value: "flag" },
 ];
 
 export default function Gallery({ assets }: { assets: Asset[] }) {
@@ -27,6 +31,9 @@ export default function Gallery({ assets }: { assets: Asset[] }) {
   const [detail, setDetail] = useState<Asset | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showReview, setShowReview] = useState(false);
+  const [showFlagGen, setShowFlagGen] = useState(false);
+  const [shapeFilter, setShapeFilter] = useState<ShapeFilter>("all");
+  const [sorting, setSorting] = useState(false);
   const [generateBase, setGenerateBase] = useState<Asset | null | undefined>(undefined);
 
   // Batch selection
@@ -44,6 +51,8 @@ export default function Gallery({ assets }: { assets: Asset[] }) {
     const q = query.trim().toLowerCase();
     return assets.filter((a) => {
       if (filterType !== "all" && a.type !== filterType) return false;
+      if (filterType === "flag" && shapeFilter !== "all" && !a.tags.includes(shapeFilter))
+        return false;
       if (filterTag && !a.tags.includes(filterTag)) return false;
       if (q) {
         const haystack = (a.name + " " + a.tags.join(" ")).toLowerCase();
@@ -51,7 +60,29 @@ export default function Gallery({ assets }: { assets: Asset[] }) {
       }
       return true;
     });
-  }, [assets, filterType, filterTag, query]);
+  }, [assets, filterType, filterTag, query, shapeFilter]);
+
+  async function sortFlags() {
+    setSorting(true);
+    try {
+      const res = await fetch("/api/assets/sort-flags", { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || "Sort failed.");
+        return;
+      }
+      alert(
+        data.moved > 0
+          ? `Moved ${data.moved} flag${data.moved !== 1 ? "s" : ""} into Flags.`
+          : "No flags found in Graphics to move."
+      );
+      router.refresh();
+    } catch {
+      alert("Sort failed. Try again.");
+    } finally {
+      setSorting(false);
+    }
+  }
 
   function toggleSelected(id: string) {
     setSelected((prev) => {
@@ -158,6 +189,29 @@ export default function Gallery({ assets }: { assets: Asset[] }) {
           </div>
         </div>
 
+        {/* Flag-specific toolbar */}
+        {filterType === "flag" && (
+          <div className="selbar">
+            <div className="tabs">
+              {(["all", "rectangle", "circular"] as ShapeFilter[]).map((s) => (
+                <button
+                  key={s}
+                  className={"tab" + (shapeFilter === s ? " active" : "")}
+                  onClick={() => setShapeFilter(s)}
+                >
+                  {s === "all" ? "All shapes" : s === "rectangle" ? "Rectangle" : "Circular"}
+                </button>
+              ))}
+            </div>
+            <button className="btn ghost sm" onClick={sortFlags} disabled={sorting}>
+              {sorting ? "Sorting…" : "⤧ Sort flags from Graphics"}
+            </button>
+            <button className="btn ghost sm" onClick={() => setShowFlagGen(true)}>
+              🏴 Generate missing flags
+            </button>
+          </div>
+        )}
+
         {/* Selection / batch toolbar */}
         <div className="selbar">
           {!selectMode ? (
@@ -249,6 +303,9 @@ export default function Gallery({ assets }: { assets: Asset[] }) {
       )}
       {showReview && (
         <ReviewModal onClose={() => setShowReview(false)} onChanged={() => router.refresh()} />
+      )}
+      {showFlagGen && (
+        <FlagGenModal onClose={() => setShowFlagGen(false)} onChanged={() => router.refresh()} />
       )}
     </>
   );

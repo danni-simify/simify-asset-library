@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin, ASSETS_BUCKET } from "@/lib/supabase";
+import { detectSvgShape } from "@/lib/shape";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,17 @@ export async function POST(req: NextRequest) {
     .map((s) => s.trim())
     .filter(Boolean);
 
+  // Optional per-file overrides from the AI plan step: { filename: { name, tags } }
+  let overrides: Record<string, { name?: string; tags?: string[] }> = {};
+  const overridesRaw = form.get("overrides");
+  if (typeof overridesRaw === "string") {
+    try {
+      overrides = JSON.parse(overridesRaw);
+    } catch {
+      /* ignore malformed overrides */
+    }
+  }
+
   if (files.length === 0) {
     return NextResponse.json({ ok: false, error: "No files selected." }, { status: 400 });
   }
@@ -78,7 +90,15 @@ export async function POST(req: NextRequest) {
     }
 
     const type = chosenType || (format === "svg" ? "icon" : "graphic");
-    const name = file.name.replace(/\.[^.]+$/, "");
+    const ov = overrides[file.name];
+    const name = (ov?.name && ov.name.trim()) || file.name.replace(/\.[^.]+$/, "");
+    let fileTags = ov?.tags && ov.tags.length ? ov.tags : tags;
+
+    // Flags: auto-detect rectangle vs circular from the SVG and tag it.
+    if (type === "flag" && format === "svg") {
+      const shape = detectSvgShape(buffer.toString("utf8"));
+      fileTags = Array.from(new Set([...fileTags, "flag", shape]));
+    }
 
     const { data, error: insErr } = await sb
       .from("assets")
@@ -86,7 +106,7 @@ export async function POST(req: NextRequest) {
         id,
         name,
         type,
-        tags,
+        tags: fileTags,
         file_url: publicUrl,
         format,
         width,

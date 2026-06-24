@@ -287,6 +287,10 @@ main {
   background: #eef0fe;
   color: #4b53c8;
 }
+.badge.flag {
+  background: #f3eafe;
+  color: #7a3cc8;
+}
 .meta .tags {
   font-size: 11.5px;
   color: var(--muted);

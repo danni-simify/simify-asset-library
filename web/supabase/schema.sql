@@ -7,7 +7,7 @@ create extension if not exists "pgcrypto";
 create table if not exists public.assets (
   id           uuid primary key default gen_random_uuid(),
   name         text not null,
-  type         text not null check (type in ('icon', 'graphic', 'image')),
+  type         text not null check (type in ('icon', 'graphic', 'image', 'flag')),
   tags         text[] not null default '{}',
   file_url     text not null,
   format       text not null,
