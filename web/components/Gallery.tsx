@@ -1,10 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Asset, AssetType } from "@/lib/types";
 import AssetModal from "./AssetModal";
 import AddModal from "./AddModal";
 import GenerateModal from "./GenerateModal";
+import ReviewModal from "./ReviewModal";
 
 type TypeFilter = AssetType | "all";
 
@@ -16,14 +18,21 @@ const TABS: { label: string; value: TypeFilter }[] = [
 ];
 
 export default function Gallery({ assets }: { assets: Asset[] }) {
+  const router = useRouter();
+
   const [filterType, setFilterType] = useState<TypeFilter>("all");
   const [filterTag, setFilterTag] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   const [detail, setDetail] = useState<Asset | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [showReview, setShowReview] = useState(false);
   const [generateBase, setGenerateBase] = useState<Asset | null | undefined>(undefined);
-  // undefined = closed, null = open with no base, Asset = open with a reference
+
+  // Batch selection
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const allTags = useMemo(() => {
     const t = new Set<string>();
@@ -44,6 +53,55 @@ export default function Gallery({ assets }: { assets: Asset[] }) {
     });
   }, [assets, filterType, filterTag, query]);
 
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function exitSelect() {
+    setSelectMode(false);
+    setSelected(new Set());
+  }
+
+  function selectAllVisible() {
+    setSelected(new Set(visible.map((a) => a.id)));
+  }
+
+  async function deleteIds(ids: string[]) {
+    if (ids.length === 0) return;
+    const label = ids.length === 1 ? "this asset" : `${ids.length} assets`;
+    if (!confirm(`Delete ${label}? This can't be undone.`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/assets/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || "Delete failed.");
+        return;
+      }
+      setDetail(null);
+      exitSelect();
+      router.refresh();
+    } catch {
+      alert("Delete failed. Try again.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function onCardClick(a: Asset) {
+    if (selectMode) toggleSelected(a.id);
+    else setDetail(a);
+  }
+
   return (
     <>
       <header>
@@ -62,11 +120,14 @@ export default function Gallery({ assets }: { assets: Asset[] }) {
               placeholder="Search by name or tag…"
             />
           </div>
+          <button className="btn ghost" onClick={() => setShowReview(true)}>
+            ✓ Review queue
+          </button>
           <button className="btn ghost" onClick={() => setGenerateBase(null)}>
             ✨ Generate variant
           </button>
           <button className="btn" onClick={() => setShowAdd(true)}>
-            ＋ Add asset
+            ＋ Add assets
           </button>
         </div>
       </header>
@@ -97,29 +158,68 @@ export default function Gallery({ assets }: { assets: Asset[] }) {
           </div>
         </div>
 
-        <div className="count">
-          {visible.length} asset{visible.length !== 1 ? "s" : ""}
+        {/* Selection / batch toolbar */}
+        <div className="selbar">
+          {!selectMode ? (
+            <button className="btn ghost sm" onClick={() => setSelectMode(true)} disabled={assets.length === 0}>
+              ☑ Select
+            </button>
+          ) : (
+            <>
+              <span className="count" style={{ margin: 0 }}>
+                {selected.size} selected
+              </span>
+              <button className="btn ghost sm" onClick={selectAllVisible}>
+                Select all ({visible.length})
+              </button>
+              <button
+                className="btn danger sm"
+                onClick={() => deleteIds([...selected])}
+                disabled={selected.size === 0 || deleting}
+              >
+                {deleting ? "Deleting…" : `🗑 Delete selected`}
+              </button>
+              <button className="btn ghost sm" onClick={exitSelect} disabled={deleting}>
+                Cancel
+              </button>
+            </>
+          )}
+          <span className="count" style={{ marginLeft: "auto", marginBottom: 0 }}>
+            {visible.length} asset{visible.length !== 1 ? "s" : ""}
+          </span>
         </div>
 
         {visible.length === 0 ? (
-          <div className="empty">No assets match. Try a different search, or add one.</div>
+          <div className="empty">
+            {assets.length === 0
+              ? "No assets yet. Click “Add assets” to upload your first icons."
+              : "No assets match. Try a different search."}
+          </div>
         ) : (
           <div className="grid">
-            {visible.map((a) => (
-              <div key={a.id} className="card" onClick={() => setDetail(a)}>
-                <div className="thumb">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={a.file_url} alt={a.name} />
-                </div>
-                <div className="meta">
-                  <div className="name">{a.name}</div>
-                  <div className="sub">
-                    <span className={"badge " + a.type}>{a.type}</span>
+            {visible.map((a) => {
+              const isSel = selected.has(a.id);
+              return (
+                <div
+                  key={a.id}
+                  className={"card" + (selectMode ? " selectable" : "") + (isSel ? " selected" : "")}
+                  onClick={() => onCardClick(a)}
+                >
+                  {selectMode && <span className="check">{isSel ? "✓" : ""}</span>}
+                  <div className="thumb">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={a.file_url} alt={a.name} />
                   </div>
-                  <div className="tags">{a.tags.map((t) => "#" + t).join(" ")}</div>
+                  <div className="meta">
+                    <div className="name">{a.name}</div>
+                    <div className="sub">
+                      <span className={"badge " + a.type}>{a.type}</span>
+                    </div>
+                    <div className="tags">{a.tags.map((t) => "#" + t).join(" ")}</div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
@@ -128,15 +228,27 @@ export default function Gallery({ assets }: { assets: Asset[] }) {
         <AssetModal
           asset={detail}
           onClose={() => setDetail(null)}
+          onDelete={(a) => deleteIds([a.id])}
           onGenerateVariant={(a) => {
             setDetail(null);
             setGenerateBase(a);
           }}
         />
       )}
-      {showAdd && <AddModal onClose={() => setShowAdd(false)} />}
+      {showAdd && (
+        <AddModal
+          onClose={() => setShowAdd(false)}
+          onUploaded={() => {
+            setShowAdd(false);
+            router.refresh();
+          }}
+        />
+      )}
       {generateBase !== undefined && (
         <GenerateModal base={generateBase} onClose={() => setGenerateBase(undefined)} />
+      )}
+      {showReview && (
+        <ReviewModal onClose={() => setShowReview(false)} onChanged={() => router.refresh()} />
       )}
     </>
   );

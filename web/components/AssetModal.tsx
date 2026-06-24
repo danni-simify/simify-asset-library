@@ -6,10 +6,12 @@ import Modal from "./Modal";
 export default function AssetModal({
   asset,
   onClose,
+  onDelete,
   onGenerateVariant,
 }: {
   asset: Asset;
   onClose: () => void;
+  onDelete: (a: Asset) => void;
   onGenerateVariant: (a: Asset) => void;
 }) {
   const downloadName =
@@ -41,6 +43,9 @@ export default function AssetModal({
         </a>
         <button className="btn ghost" onClick={() => onGenerateVariant(asset)}>
           ✨ Generate variant
+        </button>
+        <button className="btn danger" onClick={() => onDelete(asset)}>
+          🗑 Delete
         </button>
       </div>
     </Modal>

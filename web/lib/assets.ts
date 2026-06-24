@@ -1,14 +1,23 @@
 import { Asset } from "./types";
-import manifest from "@/data/assets.json";
+import { supabaseAdmin } from "./supabase";
 
-// Single source of truth for what the gallery shows. Today this reads the
-// committed manifest (assets-in-repo). To move to Supabase later, swap this
-// function for a DB query — callers don't change.
-export function getAssets(): Asset[] {
-  const all = manifest as Asset[];
-  // Only published assets are public. "needs-review" assets (e.g. freshly
-  // generated variants) are hidden until approved.
-  return all
-    .filter((a) => a.status === "published")
-    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+// Reads published assets from Supabase. "needs-review" assets (e.g. freshly
+// generated variants in Phase 3) stay hidden until approved.
+export async function getAssets(): Promise<Asset[]> {
+  const sb = supabaseAdmin();
+  if (!sb) {
+    // Supabase env not configured yet — render an empty (but working) library.
+    return [];
+  }
+  const { data, error } = await sb
+    .from("assets")
+    .select("*")
+    .eq("status", "published")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to load assets:", error.message);
+    return [];
+  }
+  return (data ?? []) as Asset[];
 }
